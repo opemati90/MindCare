@@ -1,0 +1,153 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mindcare-postgres
+    environment:
+      POSTGRES_DB: mindcare_db
+      POSTGRES_USER: mindcare_user
+      POSTGRES_PASSWORD: mindcare_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/prisma/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: mindcare-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: mindcare-backend
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://mindcare_user:mindcare_password@postgres:5432/mindcare_db
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      REFRESH_TOKEN_SECRET: dev-refresh-secret-change-in-production
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+    command: npm run dev
+
+  # Patient Web App
+  patient-web:
+    build:
+      context: .
+      dockerfile: apps/patient-web/Dockerfile
+    container_name: mindcare-patient-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-nextauth-secret-change-in-production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./apps/patient-web:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+    command: npm run dev
+
+  # Provider Web App
+  provider-web:
+    build:
+      context: .
+      dockerfile: apps/provider-web/Dockerfile
+    container_name: mindcare-provider-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3002
+      NEXTAUTH_SECRET: dev-nextauth-secret-change-in-production
+    ports:
+      - "3002:3002"
+    depends_on:
+      - backend
+    volumes:
+      - ./apps/provider-web:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+    command: npm run dev
+
+  # Admin Dashboard
+  admin-dashboard:
+    build:
+      context: .
+      dockerfile: apps/admin-dashboard/Dockerfile
+    container_name: mindcare-admin-dashboard
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3003
+      NEXTAUTH_SECRET: dev-nextauth-secret-change-in-production
+    ports:
+      - "3003:3003"
+    depends_on:
+      - backend
+    volumes:
+      - ./apps/admin-dashboard:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+    command: npm run dev
+
+  # Nginx Reverse Proxy (Optional)
+  nginx:
+    image: nginx:alpine
+    container_name: mindcare-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+      - patient-web
+      - provider-web
+      - admin-dashboard
+    networks:
+      - mindcare-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  mindcare-network:
+    driver: bridge

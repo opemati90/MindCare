@@ -1,0 +1,331 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  password  String
+  role      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile              UserProfile?
+  patientProfile       Patient?
+  providerProfile      HealthcareProvider?
+  sentNotifications    Notification[]
+  auditLogs            AuditLog[]
+  refreshTokens        RefreshToken[]
+
+  @@map("users")
+}
+
+// UserRole enum replaced with String for SQLite compatibility
+// Valid values: PATIENT, PROVIDER, ADMIN, SUPER_ADMIN
+
+model UserProfile {
+  id               String           @id @default(cuid())
+  userId           String           @unique
+  phoneNumber      String?
+  dateOfBirth      DateTime?
+  gender           String?
+  profilePicture   String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address          Address?
+  emergencyContact EmergencyContact?
+
+  @@map("user_profiles")
+}
+
+// Gender enum replaced with String for SQLite compatibility
+// Valid values: MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY
+
+model Address {
+  id            String      @id @default(cuid())
+  profileId     String      @unique
+  street        String
+  city          String
+  state         String
+  zipCode       String
+  country       String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  profile       UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("addresses")
+}
+
+model EmergencyContact {
+  id           String      @id @default(cuid())
+  profileId    String      @unique
+  name         String
+  relationship String
+  phoneNumber  String
+  email        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  profile      UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("emergency_contacts")
+}
+
+model Patient {
+  id                String            @id @default(cuid())
+  userId            String            @unique
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medicalRecords    MedicalRecord[]
+  appointments      Appointment[]     @relation("PatientAppointments")
+  insuranceInfo     InsuranceInfo[]
+  medications       Medication[]
+
+  @@map("patients")
+}
+
+model HealthcareProvider {
+  id           String                @id @default(cuid())
+  userId       String                @unique
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  license      ProviderLicense?
+  specialties  ProviderSpecialty[]
+  availability ProviderAvailability[]
+  appointments Appointment[]         @relation("ProviderAppointments")
+  medicalRecords MedicalRecord[]
+
+  @@map("healthcare_providers")
+}
+
+model ProviderLicense {
+  id             String            @id @default(cuid())
+  providerId     String            @unique
+  licenseNumber  String            @unique
+  state          String
+  expirationDate DateTime
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  provider       HealthcareProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("provider_licenses")
+}
+
+model Specialty {
+  id          String              @id @default(cuid())
+  name        String              @unique
+  description String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  providers   ProviderSpecialty[]
+
+  @@map("specialties")
+}
+
+model ProviderSpecialty {
+  id          String            @id @default(cuid())
+  providerId  String
+  specialtyId String
+  createdAt   DateTime          @default(now())
+
+  provider    HealthcareProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  specialty   Specialty         @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, specialtyId])
+  @@map("provider_specialties")
+}
+
+model ProviderAvailability {
+  id          String            @id @default(cuid())
+  providerId  String
+  dayOfWeek   String
+  startTime   String
+  endTime     String
+  isAvailable Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  provider    HealthcareProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, dayOfWeek])
+  @@map("provider_availability")
+}
+
+// DayOfWeek enum replaced with String for SQLite compatibility
+// Valid values: MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
+
+model Appointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  providerId  String
+  scheduledAt DateTime
+  duration    Int               // in minutes
+  type        String
+  status      String @default("SCHEDULED")
+  reason      String
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  patient     Patient           @relation("PatientAppointments", fields: [patientId], references: [id], onDelete: Cascade)
+  provider    HealthcareProvider @relation("ProviderAppointments", fields: [providerId], references: [id], onDelete: Cascade)
+  telehealth  TelehealthInfo?
+
+  @@map("appointments")
+}
+
+// AppointmentType enum replaced with String for SQLite compatibility
+// Valid values: CONSULTATION, FOLLOW_UP, EMERGENCY, TELEHEALTH, ROUTINE_CHECKUP
+
+// AppointmentStatus enum replaced with String for SQLite compatibility
+// Valid values: SCHEDULED, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW
+
+model TelehealthInfo {
+  id            String      @id @default(cuid())
+  appointmentId String      @unique
+  meetingUrl    String
+  meetingId     String
+  password      String?
+  platform      String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("telehealth_info")
+}
+
+// TelehealthPlatform enum replaced with String for SQLite compatibility
+// Valid values: ZOOM, TEAMS, WEBEX, CUSTOM
+
+model MedicalRecord {
+  id          String              @id @default(cuid())
+  patientId   String
+  providerId  String
+  visitDate   DateTime
+  diagnosis   String
+  treatment   String
+  notes       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  patient     Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  provider    HealthcareProvider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  attachments MedicalAttachment[]
+
+  @@map("medical_records")
+}
+
+model MedicalAttachment {
+  id              String        @id @default(cuid())
+  medicalRecordId String
+  fileName        String
+  fileType        String
+  fileSize        Int
+  url             String
+  uploadedAt      DateTime      @default(now())
+
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+
+  @@map("medical_attachments")
+}
+
+model Medication {
+  id           String   @id @default(cuid())
+  patientId    String
+  name         String
+  dosage       String
+  frequency    String
+  startDate    DateTime
+  endDate      DateTime?
+  prescribedBy String
+  instructions String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("medications")
+}
+
+model InsuranceInfo {
+  id             String    @id @default(cuid())
+  patientId      String
+  provider       String
+  policyNumber   String
+  groupNumber    String?
+  effectiveDate  DateTime
+  expirationDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  patient        Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("insurance_info")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String
+  isRead    Boolean          @default(false)
+  data      String?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// NotificationType enum replaced with String for SQLite compatibility
+// Valid values: APPOINTMENT_REMINDER, APPOINTMENT_CANCELLED, APPOINTMENT_CONFIRMED, MESSAGE_RECEIVED, SYSTEM_UPDATE
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  resource  String
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
